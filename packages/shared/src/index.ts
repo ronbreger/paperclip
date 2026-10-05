@@ -199,6 +199,14 @@ export type {
   AttentionWorkspaceRef,
 } from "./types/attention.js";
 export { ATTENTION_SOURCE_KINDS } from "./types/attention.js";
+export {
+  ATTENTION_BADGE_SOURCE_KINDS,
+  ATTENTION_BADGE_TERMINAL_STATUSES,
+  attentionItemNeedsPerson,
+  countAttentionBadgeItems,
+  isAttentionBadgeSourceKind,
+  type AttentionBadgeSourceKind,
+} from "./attention-badge.js";
 export { questionSetToAskUserQuestionsPayload } from "./question-set.js";
 export type {
   DecisionQueue,

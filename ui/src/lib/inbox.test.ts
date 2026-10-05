@@ -178,7 +178,7 @@ function makeRun(id: string, status: HeartbeatRun["status"], createdAt: string, 
   };
 }
 
-function makeIssue(id: string, isUnreadForMe: boolean): Issue {
+function makeIssue(id: string, isUnreadForMe: boolean, status: Issue["status"] = "todo"): Issue {
   return {
     id,
     companyId: "company-1",
@@ -188,7 +188,7 @@ function makeIssue(id: string, isUnreadForMe: boolean): Issue {
     parentId: null,
     title: `Issue ${id}`,
     description: null,
-    status: "todo",
+    status,
     workMode: "standard",
     priority: "medium",
     reviewPolicy: null,
@@ -334,7 +334,9 @@ describe("inbox helpers", () => {
       ],
     });
     expect(result.failedRuns).toBe(expected);
-    expect(result.inbox).toBe(expected);
+    // `failedRuns` still drives the danger tone and the Mine list, but it is
+    // status an agent is already retrying, so it is not in the badge.
+    expect(result.inbox).toBe(0);
     expect(result.alerts).toBe(1); // The budget alert; run failures already describe agent errors in All.
   });
 
@@ -357,8 +359,11 @@ describe("inbox helpers", () => {
       currentUserId: "user-1",
     });
 
+    // The badge counts the approval and the join request — the two things
+    // actually waiting on this person. The two failed runs and the one unread
+    // issue are reported separately so the UI can still show them, quietly.
     expect(result).toEqual({
-      inbox: 5,
+      inbox: 2,
       approvals: 1,
       failedRuns: 2,
       joinRequests: 1,
@@ -402,8 +407,51 @@ describe("inbox helpers", () => {
     });
 
     expect(result.mineIssues).toBe(1);
-    expect(result.inbox).toBe(1);
+    expect(result.inbox).toBe(0);
     expect(result.alerts).toBe(2);
+  });
+
+  it("does not count unread comments on a done or cancelled task", () => {
+    // An agent commenting after the work closed used to keep the badge lit
+    // forever. A closed task cannot be waiting on anybody.
+    const result = computeInboxBadgeData({
+      approvals: [],
+      joinRequests: [],
+      dashboard,
+      heartbeatRuns: [],
+      mineIssues: [
+        makeIssue("1", true, "done"),
+        makeIssue("2", true, "cancelled"),
+        makeIssue("3", true, "in_progress"),
+      ],
+      dismissedAlerts: new Set<string>(),
+      dismissedAtByKey: new Map(),
+      currentUserId: "user-1",
+    });
+
+    expect(result.mineIssues).toBe(1);
+    expect(result.inbox).toBe(0);
+  });
+
+  it("counts nothing but approvals and join requests, whatever else is unread", () => {
+    // The trust invariant for this badge: if it shows N, there are exactly N
+    // things a person must answer. Comments, failed runs and health alerts are
+    // all visible elsewhere and none of them is a request.
+    const result = computeInboxBadgeData({
+      approvals: [{ ...makeApproval("pending"), requestedByUserId: "user-1" }],
+      joinRequests: [makeJoinRequest("join-1")],
+      dashboard,
+      heartbeatRuns: [makeRun("run-1", "failed", "2026-03-11T00:00:00.000Z")],
+      mineIssues: [makeIssue("1", true), makeIssue("2", true), makeIssue("3", true)],
+      dismissedAlerts: new Set<string>(),
+      dismissedAtByKey: new Map(),
+      currentUserId: "user-1",
+    });
+
+    expect(result.inbox).toBe(result.approvals + result.joinRequests);
+    expect(result.inbox).toBe(2);
+    expect(result.failedRuns).toBe(1);
+    expect(result.mineIssues).toBe(3);
   });
 
   it("resurfaces non-issue items when they change after dismissal", () => {

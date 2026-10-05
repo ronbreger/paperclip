@@ -265,10 +265,11 @@ export interface AttentionFeed {
   generatedAt: string;
   totalCount: number;
   /**
-   * The sidebar badge: distinct items that either surfaced today ("new today")
-   * or carry an explicit decide-by deadline that is due today/past ("overdue").
-   * Computed before pagination so a small first page still reflects the
-   * company-wide load. The desk no longer editorializes about what "can wait".
+   * The sidebar badge: open items that are blocked on a person right now.
+   * Defined by `attentionItemNeedsPerson` in `../attention-badge.js` — requests
+   * only, open subject only, still live. Computed over the whole feed before
+   * pagination and before the caller's filters, so a small first page still
+   * reflects the company-wide load. No clock: the count never resets.
    */
   deskBadgeCount: number;
   nextCursor: string | null;
