@@ -60,12 +60,39 @@ function filters(overrides: Partial<IssueFilterState>): IssueFilterState {
   return { ...defaultIssueFilterState, ...overrides };
 }
 
+// ---------------------------------------------------------------------------
+// BREGER-LOCAL — do not upstream this block.
+//
+// Two of the starter views below are specific to this instance: `workbench`
+// hard-codes a project id that exists only in the Breger organization, and
+// `needs-ron` is named after a person. The upstream branch
+// (`feat/saved-task-views`) ships the generic three only. Drop this comment
+// and revert the two entries before raising anything from this file upstream.
+// ---------------------------------------------------------------------------
+
+/** The `Workbench` project in the Breger organization. */
+const BREGER_WORKBENCH_PROJECT_ID = "90d611f9-b079-45ff-9294-036093b61942";
+
 /**
  * Seeded on a device that has never saved a view. Every one of these is a
  * plain filter set the user could have built in the Filters popover, and each
  * can be renamed or deleted like any other saved view.
  */
 export const STARTER_SAVED_VIEWS: readonly SavedView[] = [
+  // BREGER-LOCAL
+  {
+    id: "workbench",
+    label: "Workbench",
+    hint: "Parked ideas, not committed work",
+    filters: filters({ projects: [BREGER_WORKBENCH_PROJECT_ID], statuses: ["backlog"] }),
+  },
+  // BREGER-LOCAL — upstream calls this "Awaiting you".
+  {
+    id: "needs-ron",
+    label: "Needs Ron",
+    hint: "Decisions, approvals and join requests waiting on Ron",
+    filters: filters({ attention: [ATTENTION_FILTER_NEEDS_ME] }),
+  },
   {
     id: "active-work",
     label: "Active work",
@@ -77,12 +104,6 @@ export const STARTER_SAVED_VIEWS: readonly SavedView[] = [
     label: "Review",
     hint: "Work waiting for review or acceptance",
     filters: filters({ statuses: ["in_review"] }),
-  },
-  {
-    id: "awaiting-you",
-    label: "Awaiting you",
-    hint: "Decisions, approvals and join requests waiting on you",
-    filters: filters({ attention: [ATTENTION_FILTER_NEEDS_ME] }),
   },
 ];
 
