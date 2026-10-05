@@ -26,7 +26,7 @@ import {
   projects,
   projectWorkspaces,
 } from "@paperclipai/db";
-import { deriveProjectUrlKey } from "@paperclipai/shared";
+import { countAttentionBadgeItems, deriveProjectUrlKey } from "@paperclipai/shared";
 import type {
   AttentionDecisionVerb,
   AttentionFeed,
@@ -497,16 +497,12 @@ function decideOrder(item: AttentionItem, now: number): [number, number] {
   return [2, Number.MAX_SAFE_INTEGER];
 }
 
-function isDecideNow(item: AttentionItem, now: number) {
-  const [bucket, deadline] = decideOrder(item, now);
-  return bucket === 0 && deadline <= endOfUtcDay(now);
-}
-
-/** Surfaced today (arrival). Mirrors `attentionIsNewToday` in `ui/src/lib/attention.ts`. */
-function isNewToday(item: AttentionItem, now: number) {
-  const ts = timestamp(item.createdAt);
-  return ts > 0 && ts >= startOfUtcDay(now);
-}
+// `isDecideNow`/`isNewToday` used to live here and used to *be* the badge.
+// They are gone: arrival time and deadline order the desk, they no longer
+// decide whether something counts. The badge rule is `attentionItemNeedsPerson`
+// in `packages/shared/src/attention-badge.ts`. The UI keeps its own
+// `attentionIsDecideNow`/`attentionIsNewToday` for the desk shelves, which are
+// presentation only.
 
 function compareDecideItems(left: AttentionItem, right: AttentionItem, now: number) {
   const [leftBucket, leftDeadline] = decideOrder(left, now);
@@ -1966,11 +1962,14 @@ export function attentionService(db: Db, serviceOptions: AttentionServiceOptions
         companyId,
         generatedAt: new Date().toISOString(),
         totalCount: rankedItems.length,
-        // Desk badge: distinct items that surfaced
-        // today OR carry an explicit decide-by deadline due today/past. Counted
-        // over the full ranked set (pre-pagination) so the sidebar badge stays
-        // company-wide accurate even on a small first page.
-        deskBadgeCount: rankedItems.filter((item) => isNewToday(item, now) || isDecideNow(item, now)).length,
+        // Desk badge: open items that are blocked on a person right now. One
+        // rule, shared with every client — see `attentionItemNeedsPerson`.
+        // Counted over `enrichedItems`, not the ranked page, so neither
+        // pagination nor the caller's queue/activity filters can move the
+        // company-wide badge. There is no "new today" clock: the count does not
+        // reset at UTC midnight, and an item leaves it only when it is
+        // answered, withdrawn, defaulted or resolved.
+        deskBadgeCount: countAttentionBadgeItems(enrichedItems, now),
         nextCursor,
         countsBySourceKind,
         items,

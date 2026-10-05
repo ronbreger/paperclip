@@ -8,6 +8,7 @@ import type {
   AttentionSeverity,
   AttentionSourceKind,
 } from "@paperclipai/shared";
+import { countAttentionBadgeItems } from "@paperclipai/shared";
 import { Routes, Route } from "@/lib/router";
 import { WhatNeedsMe } from "@/pages/WhatNeedsMe";
 import { DecisionQueuePage } from "@/pages/DecisionQueuePage";
@@ -137,17 +138,9 @@ function approval(id: string, title: string, whyNow: string, overrides: Partial<
 }
 
 function feed(items: AttentionItem[]): AttentionFeed {
-  // New-today (surfaced today) or overdue decide-by — the sidebar badge load.
-  const startOfToday = Date.UTC(
-    new Date(NOW).getUTCFullYear(),
-    new Date(NOW).getUTCMonth(),
-    new Date(NOW).getUTCDate(),
-  );
-  const deskBadgeCount = items.filter(
-    (it) =>
-      !it.shelf &&
-      (it.decideBy === "today" || new Date(it.createdAt).getTime() >= startOfToday),
-  ).length;
+  // The sidebar badge: open items blocked on a person. Same rule the server
+  // uses, so the story shows the number the product would really show.
+  const deskBadgeCount = countAttentionBadgeItems(items, NOW);
   return {
     companyId,
     generatedAt: iso(NOW),

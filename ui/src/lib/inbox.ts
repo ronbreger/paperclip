@@ -1,4 +1,4 @@
-import { isHeartbeatRunVisibleInMine } from "@paperclipai/shared";
+import { ATTENTION_BADGE_TERMINAL_STATUSES, isHeartbeatRunVisibleInMine } from "@paperclipai/shared";
 import type {
   Approval,
   DashboardSummary,
@@ -19,6 +19,12 @@ import { formatAssigneeUserLabel } from "./assignees";
 export const RECENT_ISSUES_LIMIT = 100;
 export const FAILED_RUN_STATUSES = new Set(["failed", "timed_out"]);
 export const ACTIONABLE_APPROVAL_STATUSES = new Set(["pending", "revision_requested"]);
+/** `done` / `cancelled` — a closed task cannot be waiting on anybody. */
+const TERMINAL_INBOX_ISSUE_STATUSES = new Set<string>(ATTENTION_BADGE_TERMINAL_STATUSES);
+
+export function isTerminalInboxIssueStatus(status: string | null | undefined): boolean {
+  return !!status && TERMINAL_INBOX_ISSUE_STATUSES.has(status);
+}
 export const DISMISSED_KEY = "paperclip:inbox:dismissed";
 export const READ_ITEMS_KEY = "paperclip:inbox:read-items";
 export const INBOX_LAST_TAB_KEY = "paperclip:inbox:last-tab";
@@ -1294,7 +1300,12 @@ export function computeInboxBadgeData({
   const visibleJoinRequests = joinRequests.filter(
     (jr) => !isInboxEntityDismissed(dismissedAtByKey, `join:${jr.id}`, jr.updatedAt ?? jr.createdAt),
   ).length;
-  const visibleMineIssues = mineIssues.filter((issue) => issue.isUnreadForMe).length;
+  // Unread issues stay available for the quiet bold-row signal, but a closed
+  // task can no longer need anyone, so it is not even unread for badge
+  // purposes. See the `inbox` field below for why none of these are counted.
+  const visibleMineIssues = mineIssues.filter(
+    (issue) => issue.isUnreadForMe && !isTerminalInboxIssueStatus(issue.status),
+  ).length;
   const agentErrorCount = dashboard?.agents.error ?? 0;
   const monthBudgetCents = dashboard?.costs.monthBudgetCents ?? 0;
   const monthUtilizationPercent = dashboard?.costs.monthUtilizationPercent ?? 0;
@@ -1309,8 +1320,20 @@ export function computeInboxBadgeData({
   const alerts = Number(showAggregateAgentError) + Number(showBudgetAlert);
 
   return {
-    // The inbox badge reflects personal/actionable work, not company-wide health alerts.
-    inbox: actionableApprovals + visibleJoinRequests + failedRuns + visibleMineIssues,
+    // The inbox badge counts only what is waiting on *you*: an approval to give
+    // and a join request to answer. It is deliberately not a count of activity.
+    //
+    //  • Unread comments are not counted. "Someone wrote something" is not
+    //    "you are needed", and on a busy company the unread count never drops,
+    //    so the badge stops carrying information. Unread stays visible as a
+    //    bold row (`mineIssues`), which is the right quiet signal for it.
+    //  • Failed runs are not counted. An agent is already retrying; that is
+    //    status. It still drives the danger tone via `failedRuns`.
+    //  • Health alerts were already excluded and stay excluded (`alerts`).
+    //
+    // Same rule as the decisions badge (`attentionItemNeedsPerson` in
+    // `@paperclipai/shared`): requests only, open subject only, still live.
+    inbox: actionableApprovals + visibleJoinRequests,
     approvals: actionableApprovals,
     failedRuns,
     joinRequests: visibleJoinRequests,

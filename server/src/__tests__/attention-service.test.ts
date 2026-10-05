@@ -39,6 +39,7 @@ import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
 } from "./helpers/embedded-postgres.js";
+import { attentionItemNeedsPerson } from "@paperclipai/shared";
 import { errorHandler } from "../middleware/index.js";
 import { attentionRoutes } from "../routes/attention.js";
 import { attentionService } from "../services/attention.js";
@@ -1723,19 +1724,20 @@ describeEmbeddedPostgres("attention service", () => {
       sort: "decide",
       limit: 20,
     });
-    // Desk badge = distinct items surfaced today OR with a due decide-by
-    // Everything here was seeded ~now, so every visible row
-    // counts; the whole page fits under limit:20 so items == rankedItems.
-    const startOfUtcDay = Date.UTC(
-      new Date(now).getUTCFullYear(),
-      new Date(now).getUTCMonth(),
-      new Date(now).getUTCDate(),
-    );
-    const expectedBadge = feed.items.filter(
-      (item) => new Date(item.createdAt).getTime() >= startOfUtcDay || item.decideBy === "today",
+    // Desk badge = open items blocked on a person. Arrival time and decide-by
+    // do not enter into it, so the agent-error row is out even though it
+    // surfaced today alongside everything else.
+    const expectedBadge = feed.items.filter((item) =>
+      attentionItemNeedsPerson(item, Date.now()),
     ).length;
     expect(expectedBadge).toBeGreaterThanOrEqual(2);
     expect(feed.deskBadgeCount).toBe(expectedBadge);
+    expect(feed.items.some((item) => item.sourceKind === "agent_error_alert")).toBe(true);
+    expect(
+      feed.items.filter((item) => item.sourceKind === "agent_error_alert").every(
+        (item) => !attentionItemNeedsPerson(item, Date.now()),
+      ),
+    ).toBe(true);
     expect(feed.items.some((item) => item.subject.id === snoozedId)).toBe(false);
     expect(feed.items.slice(0, 3).map((item) => item.subject.id)).toEqual([
       expiringSoonId,
@@ -1768,7 +1770,12 @@ describeEmbeddedPostgres("attention service", () => {
       sort: "decide",
       limit: 1,
     });
-    expect(firstPage).toMatchObject({ totalCount: 2, deskBadgeCount: 2 });
+    // `totalCount` follows the queue filter and the page; the badge does not.
+    // It is the company-wide number, so narrowing to one queue or to one row
+    // must not shrink it — otherwise the sidebar would read differently
+    // depending on which page happened to poll last.
+    expect(firstPage).toMatchObject({ totalCount: 2, deskBadgeCount: feed.deskBadgeCount });
+    expect(firstPage.items).toHaveLength(1);
     expect(firstPage.items.map((item) => item.subject.id)).toEqual([expiringSoonId]);
     expect(firstPage.nextCursor).toBeTruthy();
     const secondPage = await attentionService(db).list(companyId, {

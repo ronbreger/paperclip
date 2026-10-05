@@ -264,10 +264,10 @@ export function attentionImageUrl(assetId: string): string {
 }
 
 /**
- * The sidebar badge: distinct items that either surfaced today or carry an
- * explicit decide-by deadline that is due today/past. The server computes this
- * before pagination (`deskBadgeCount`), so badge polling can fetch a small
- * first page without losing the company-wide signal.
+ * The sidebar badge: open items that are blocked on a person right now. The
+ * server computes it over the whole feed (`deskBadgeCount`, rule in
+ * `@paperclipai/shared` `attentionItemNeedsPerson`), so badge polling can fetch
+ * a small first page without losing the company-wide signal.
  */
 export function attentionBadgeCount(feed: AttentionFeed | null | undefined): number {
   return feed?.deskBadgeCount ?? 0;
@@ -282,11 +282,14 @@ export function attentionBadgeCount(feed: AttentionFeed | null | undefined): num
 //     is due today/past. No deadline set anywhere → no shelf, no claim.
 //   • "New today"   — decisions that surfaced today (arrival grouping).
 //   • "Earlier"     — everything else, older arrivals.
-// The server owns the authoritative decide-by ranking (`sort=decide`) and the
-// badge (`deskBadgeCount`); these client helpers mirror that logic *exactly*
-// (same UTC day boundaries) so the on-page split and the badge never disagree.
-// Keep in lockstep with `server/src/services/attention.ts`
-// (`decideOrder`/`isDecideNow`/`isNewToday`).
+// The server owns the authoritative decide-by ranking (`sort=decide`); these
+// client helpers mirror it *exactly* (same UTC day boundaries) so the on-page
+// split and the server order never disagree. Keep in lockstep with
+// `decideOrder` in `server/src/services/attention.ts`.
+//
+// These shelves are presentation only. They do NOT feed the badge: arriving
+// today or being overdue has nothing to do with whether something is blocked on
+// a person. The badge rule is `attentionItemNeedsPerson` in `@paperclipai/shared`.
 // ---------------------------------------------------------------------------
 
 const MS_PER_DAY_DECIDE = 24 * 60 * 60 * 1_000;
