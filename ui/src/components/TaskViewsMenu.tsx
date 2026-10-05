@@ -120,6 +120,11 @@ export function TaskViewsMenu({
                       // reachable with a thumb, and negatively margined so it
                       // does not make the row taller.
                       className="-my-1 shrink-0 rounded-sm p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      // The menu item selects on click, and on a pointer-up
+                      // whose pointer-down landed elsewhere. Both are stopped
+                      // here, or a tap on the bin would also open the view.
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onPointerUp={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
