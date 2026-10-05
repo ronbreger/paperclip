@@ -232,3 +232,26 @@ to Tasks. A Views menu on the task list covers the inbox views (Mine, Unread,
 Blocked, Recent, Everything) and the task-status views (All, Active, Backlog,
 Done). Bare `/issues` opens the last-used view, defaulting to Mine; links that
 carry a task filter open All. Old `/inbox` links redirect to the matching view.
+
+### Saved views
+
+A saved view is a name on a set of task filters. Set the filters you want on
+the task list, then select **Save current filters as a view** in the Views
+menu. The view shows in that same menu, below the built-in views, with the
+number of tasks in it. Select the view to go back to those filters. Each view
+has an address, `/issues?view=saved:<id>`.
+
+Saved views hold filters only. They do not hold tasks. A task enters or leaves
+a view when the task changes, not when you open the view.
+
+Three views are supplied on a device that has no saved views yet: **Active
+work**, **Review** and **Awaiting you**. Rename or delete them like any other
+saved view.
+
+**Awaiting you** uses an attention filter. This filter shows the tasks that
+have an unresolved item that only a person can clear: a decision card, an
+approval, a join request or a review. Items that are answered, dismissed or
+snoozed are not in the list.
+
+Saved views are kept in the browser, for each organization. They are not
+synchronized between devices.

@@ -253,3 +253,48 @@ describe("issue filters", () => {
     expect(filtered).toEqual([]);
   });
 });
+
+describe("attention filter", () => {
+  const issues = [makeIssue({ id: "a" }), makeIssue({ id: "b" }), makeIssue({ id: "c" })];
+  const state = { ...defaultIssueFilterState, attention: ["needs_me"] };
+  const context = {
+    attentionIssueIdsByToken: new Map([["needs_me", new Set(["a", "c"])]]),
+    attentionReady: true,
+  };
+
+  it("keeps only the issues the feed says a person still has to act on", () => {
+    expect(applyIssueFilters(issues, state, null, false, undefined, context).map((i) => i.id))
+      .toEqual(["a", "c"]);
+  });
+
+  it("shows nothing until the feed has loaded, rather than silently ignoring the filter", () => {
+    expect(applyIssueFilters(issues, state, null, false, undefined, {
+      ...context,
+      attentionReady: false,
+    })).toEqual([]);
+    expect(applyIssueFilters(issues, state, null, false, undefined, {})).toEqual([]);
+  });
+
+  it("is inert when no attention token is selected", () => {
+    expect(applyIssueFilters(issues, defaultIssueFilterState, null, false, undefined, {}))
+      .toHaveLength(3);
+  });
+
+  it("matches an issue carrying any one of several tokens", () => {
+    const multi = { ...defaultIssueFilterState, attention: ["needs_me", "other"] };
+    const multiContext = {
+      attentionIssueIdsByToken: new Map([
+        ["needs_me", new Set(["a"])],
+        ["other", new Set(["b"])],
+      ]),
+      attentionReady: true,
+    };
+    expect(applyIssueFilters(issues, multi, null, false, undefined, multiContext).map((i) => i.id))
+      .toEqual(["a", "b"]);
+  });
+
+  it("counts as one active filter", () => {
+    expect(countActiveIssueFilters(state)).toBe(1);
+    expect(countActiveIssueFilters(defaultIssueFilterState)).toBe(0);
+  });
+});

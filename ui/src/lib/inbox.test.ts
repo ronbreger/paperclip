@@ -941,6 +941,7 @@ describe("inbox helpers", () => {
           workspaces: [],
           liveOnly: false,
           externalObjectStatuses: [],
+          attention: [],
           hideRoutineExecutions: true,
         },
       }).map((issue) => issue.id),
@@ -962,6 +963,7 @@ describe("inbox helpers", () => {
           workspaces: [],
           liveOnly: false,
           externalObjectStatuses: [],
+          attention: [],
           hideRoutineExecutions: true,
         },
       }),
@@ -983,6 +985,7 @@ describe("inbox helpers", () => {
           workspaces: [],
           liveOnly: false,
           externalObjectStatuses: [],
+          attention: [],
           hideRoutineExecutions: true,
         },
       }),
@@ -1031,6 +1034,7 @@ describe("inbox helpers", () => {
           workspaces: [],
           liveOnly: false,
           externalObjectStatuses: ["failed"],
+          attention: [],
           hideRoutineExecutions: true,
         },
         issueFilterContext: {
@@ -1127,6 +1131,7 @@ describe("inbox helpers", () => {
         workspaces: ["workspace-1"],
         liveOnly: true,
         externalObjectStatuses: [],
+        attention: [],
         hideRoutineExecutions: false,
       },
     });
@@ -1143,6 +1148,7 @@ describe("inbox helpers", () => {
         workspaces: [],
         liveOnly: false,
         externalObjectStatuses: [],
+        attention: [],
         hideRoutineExecutions: true,
       },
     });
@@ -1160,6 +1166,7 @@ describe("inbox helpers", () => {
         workspaces: ["workspace-1"],
         liveOnly: true,
         externalObjectStatuses: [],
+        attention: [],
         hideRoutineExecutions: false,
       },
     });
@@ -1176,6 +1183,7 @@ describe("inbox helpers", () => {
         workspaces: [],
         liveOnly: false,
         externalObjectStatuses: [],
+        attention: [],
         hideRoutineExecutions: true,
       },
     });
@@ -1211,6 +1219,7 @@ describe("inbox helpers", () => {
         workspaces: ["workspace-1"],
         liveOnly: false,
         externalObjectStatuses: [],
+        attention: [],
         hideRoutineExecutions: false,
       },
     });

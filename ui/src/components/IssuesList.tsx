@@ -251,11 +251,16 @@ function getInitialWorkspaceViewState(
   initialWorkspaces?: string[],
   defaultSortField?: IssueSortField,
   initialStatuses?: string[],
+  initialFilters?: IssueFilterState,
 ): IssueViewState {
   const initial = getInitialViewState(stored, initialAssignees, defaultSortField);
   const scoped = initialWorkspaces
     ? { ...initial, workspaces: initialWorkspaces, statuses: [] }
     : initial;
+  // A saved view *is* its filter set, so it replaces every filter rather than
+  // merging with what the last session left behind. Sort, grouping, columns
+  // and board/list mode are presentation, not definition, and stay.
+  if (initialFilters) return { ...scoped, ...normalizeIssueFilterState(initialFilters) };
   // A status preset (Active / Backlog / Done, and All as the empty set) is the
   // view's definition, so it wins over whatever the last session persisted.
   // `undefined` means "no preset" and leaves the stored statuses alone.
@@ -479,6 +484,18 @@ interface IssuesListProps {
    * Used by the Tasks view presets (PAP-670).
    */
   initialStatuses?: string[];
+  /**
+   * Whole filter set applied on entry and whenever it changes, overriding the
+   * persisted filters. This is what a saved view opens with; `initialStatuses`
+   * stays for the built-in status presets, which only ever set statuses.
+   */
+  initialFilters?: IssueFilterState;
+  /**
+   * Issue ids backing the `attention` filter, from whoever holds the feed.
+   * Omitted on surfaces that never offer that filter.
+   */
+  attentionIssueIds?: ReadonlyMap<string, ReadonlySet<string>>;
+  attentionIssueIdsReady?: boolean;
   initialSearch?: string;
   searchFilters?: Omit<IssueListRequestFilters, "q" | "projectId" | "limit" | "includeRoutineExecutions">;
   searchWithinLoadedIssues?: boolean;
@@ -499,6 +516,20 @@ interface IssuesListProps {
   issueBadgeById?: Map<string, string>;
   onLoadMoreIssues?: () => void;
   onSearchChange?: (search: string) => void;
+  /**
+   * Reports the filter set currently applied, so a toolbar control rendered
+   * outside this component (the Views menu) can save it as a named view.
+   */
+  onFiltersChange?: (filters: IssueFilterState) => void;
+  /**
+   * Extra filter sets to count against the same loaded issues, keyed however
+   * the caller likes. The Views menu uses this for its per-view counts: they
+   * come from the same `applyIssueFilters` call the list itself runs, so a
+   * count can never disagree with the rows the view goes on to show.
+   */
+  countFilterSets?: Readonly<Record<string, IssueFilterState>>;
+  /** `partial` is true while the server still has pages the count has not seen. */
+  onFilterSetCounts?: (counts: Record<string, number>, partial: boolean) => void;
   /** Opt in per surface while the canonical task row rolls out across collections. */
   rowPresentation?: IssueRowPresentation;
   /** Opt in per surface while the shared collection toolbar rolls out. */
@@ -724,6 +755,9 @@ function StreamlinedIssuesList({
   initialAssignees,
   initialWorkspaces,
   initialStatuses,
+  initialFilters,
+  attentionIssueIds,
+  attentionIssueIdsReady = false,
   initialSearch,
   searchFilters,
   searchWithinLoadedIssues = false,
@@ -739,6 +773,9 @@ function StreamlinedIssuesList({
   issueBadgeById,
   onLoadMoreIssues,
   onSearchChange,
+  onFiltersChange,
+  countFilterSets,
+  onFilterSetCounts,
   rowPresentation = "legacy",
   toolbarContext,
   toolbarPresentation = "legacy",
@@ -804,6 +841,7 @@ function StreamlinedIssuesList({
   const initialAssigneesKey = initialAssignees?.join("|") ?? "";
   const initialWorkspacesKey = initialWorkspaces?.join("|") ?? "";
   const initialStatusesKey = initialStatuses ? `set:${initialStatuses.join("|")}` : "";
+  const initialFiltersKey = initialFilters ? `set:${JSON.stringify(initialFilters)}` : "";
   const initialPreferencesRef = useRef<ReturnType<typeof loadIssueCollectionPreferences> | null>(null);
   if (initialPreferencesRef.current === null) {
     initialPreferencesRef.current = loadIssueCollectionPreferences(preferenceLocation);
@@ -817,6 +855,7 @@ function StreamlinedIssuesList({
       initialWorkspaces,
       defaultSortField,
       initialStatuses,
+      initialFilters,
     ),
   );
   const [assigneePickerIssueId, setAssigneePickerIssueId] = useState<string | null>(null);
@@ -833,12 +872,22 @@ function StreamlinedIssuesList({
     setIssueSearch(initialSearch ?? "");
   }, [initialSearch]);
 
-  // Reload view state whenever the persisted context changes.
-  const prevViewStateContextKey = useRef(
-    `${scopedKey}::${initialAssigneesKey}::${initialWorkspacesKey}::${initialStatusesKey}`,
+  // Report the applied filters outward. Serialized rather than passed by
+  // reference so a re-render that rebuilds an identical state does not fire.
+  const appliedFiltersKey = useMemo(
+    () => JSON.stringify(normalizeIssueFilterState(viewState)),
+    [viewState],
   );
   useEffect(() => {
-    const nextContextKey = `${scopedKey}::${initialAssigneesKey}::${initialWorkspacesKey}::${initialStatusesKey}`;
+    onFiltersChange?.(normalizeIssueFilterState(JSON.parse(appliedFiltersKey)));
+  }, [appliedFiltersKey, onFiltersChange]);
+
+  // Reload view state whenever the persisted context changes.
+  const prevViewStateContextKey = useRef(
+    `${scopedKey}::${initialAssigneesKey}::${initialWorkspacesKey}::${initialStatusesKey}::${initialFiltersKey}`,
+  );
+  useEffect(() => {
+    const nextContextKey = `${scopedKey}::${initialAssigneesKey}::${initialWorkspacesKey}::${initialStatusesKey}::${initialFiltersKey}`;
     if (prevViewStateContextKey.current !== nextContextKey) {
       prevViewStateContextKey.current = nextContextKey;
       const preferences = loadIssueCollectionPreferences(preferenceLocation);
@@ -848,6 +897,7 @@ function StreamlinedIssuesList({
         initialWorkspaces,
         defaultSortField,
         initialStatuses,
+        initialFilters,
       ));
       setVisibleIssueColumns(preferences.columns);
     }
@@ -859,6 +909,8 @@ function StreamlinedIssuesList({
     initialWorkspacesKey,
     initialStatuses,
     initialStatusesKey,
+    initialFilters,
+    initialFiltersKey,
     defaultSortField,
     preferenceLocation.companyId,
     preferenceLocation.collectionKey,
@@ -1199,7 +1251,16 @@ function StreamlinedIssuesList({
     ...issueFilterWorkspaceContext,
     externalObjectSummaryByIssueId,
     externalObjectSummariesReady: externalObjectSummariesReady && !externalObjectSummariesLoading,
-  }), [externalObjectSummariesLoading, externalObjectSummariesReady, externalObjectSummaryByIssueId, issueFilterWorkspaceContext]);
+    attentionIssueIdsByToken: attentionIssueIds,
+    attentionReady: attentionIssueIdsReady,
+  }), [
+    attentionIssueIds,
+    attentionIssueIdsReady,
+    externalObjectSummariesLoading,
+    externalObjectSummariesReady,
+    externalObjectSummaryByIssueId,
+    issueFilterWorkspaceContext,
+  ]);
   const externalObjectFilterLoading = hasExternalObjectStatusFilters
     && externalObjectSummariesLoading
     && !externalObjectSummariesReady;
@@ -1222,6 +1283,35 @@ function StreamlinedIssuesList({
     liveIssueIds,
     issueFilterContext,
   ]);
+
+  // Per-view counts. Deliberately counted against `issues` rather than the
+  // search-scoped set: a view's count describes the view, not what the user
+  // happens to be typing in the search box.
+  const filterSetCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [key, filterSet] of Object.entries(countFilterSets ?? {})) {
+      counts[key] = applyIssueFilters(
+        issues,
+        filterSet,
+        currentUserId,
+        enableRoutineVisibilityFilter,
+        liveIssueIds,
+        issueFilterContext,
+      ).length;
+    }
+    return counts;
+  }, [
+    countFilterSets,
+    issues,
+    currentUserId,
+    enableRoutineVisibilityFilter,
+    liveIssueIds,
+    issueFilterContext,
+  ]);
+  const filterSetCountsKey = JSON.stringify(filterSetCounts);
+  useEffect(() => {
+    onFilterSetCounts?.(JSON.parse(filterSetCountsKey), hasMoreIssues);
+  }, [filterSetCountsKey, hasMoreIssues, onFilterSetCounts]);
 
   const progressSummary = useMemo(
     () => shouldRenderSubIssueProgressSummary(showProgressSummary, issues.length)

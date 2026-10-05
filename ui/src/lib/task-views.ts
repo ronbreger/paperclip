@@ -1,4 +1,13 @@
 import type { InboxTab } from "./inbox";
+import type { IssueFilterState } from "./issue-filters";
+import {
+  findSavedView,
+  isSavedViewKey,
+  parseSavedViewId,
+  savedViewKey,
+  type SavedTaskViewKey,
+  type SavedView,
+} from "./saved-views";
 
 /**
  * The single view registry behind the merged Tasks surface (PAP-670).
@@ -27,7 +36,14 @@ export const TASK_VIEW_KEYS = [
   "done",
 ] as const;
 
-export type TaskViewKey = (typeof TASK_VIEW_KEYS)[number];
+export type BuiltInTaskViewKey = (typeof TASK_VIEW_KEYS)[number];
+/**
+ * A view key is either one of the built-ins above or `saved:<id>` — a view the
+ * user named out of their own filters. Both are addressed the same way, so the
+ * Views menu, the `?view=` param and the last-used memory need no second code
+ * path.
+ */
+export type TaskViewKey = BuiltInTaskViewKey | SavedTaskViewKey;
 export type TaskViewSurface = "inbox" | "issues";
 
 export interface TaskView {
@@ -38,6 +54,14 @@ export interface TaskView {
   inboxTab?: InboxTab;
   /** Status filter applied on entry (`issues` surface only). */
   statuses?: string[];
+  /**
+   * The whole filter set a saved view opens with (`issues` surface only).
+   * Built-in views express their preset through `statuses` instead, which is
+   * all any of them needs.
+   */
+  filters?: IssueFilterState;
+  /** Present only on saved views; the id to rename or delete. */
+  savedViewId?: string;
   /** One-line description shown in the Views menu. */
   hint: string;
 }
@@ -69,25 +93,65 @@ export const TASK_VIEW_GROUPS: TaskViewGroup[] = [
   },
 ];
 
-const VIEWS_BY_KEY = new Map<TaskViewKey, TaskView>(
-  TASK_VIEW_GROUPS.flatMap((group) => group.views.map((view) => [view.key, view] as const)),
+const VIEWS_BY_KEY = new Map<BuiltInTaskViewKey, TaskView>(
+  TASK_VIEW_GROUPS.flatMap((group) => group.views.map((view) => [view.key as BuiltInTaskViewKey, view] as const)),
 );
 
 export const DEFAULT_TASK_VIEW: TaskViewKey = "mine";
 export const TASK_VIEW_PARAM = "view";
 export const TASK_LAST_VIEW_KEY = "paperclip:tasks:last-view";
+export const SAVED_VIEW_GROUP_LABEL = "Saved views";
 
-export function isTaskViewKey(value: unknown): value is TaskViewKey {
-  return typeof value === "string" && VIEWS_BY_KEY.has(value as TaskViewKey);
+export function isBuiltInTaskViewKey(value: unknown): value is BuiltInTaskViewKey {
+  return typeof value === "string" && VIEWS_BY_KEY.has(value as BuiltInTaskViewKey);
 }
 
-export function taskView(key: TaskViewKey): TaskView {
-  return VIEWS_BY_KEY.get(key)!;
+/** A saved key only counts as a view key while that saved view still exists. */
+export function isTaskViewKey(value: unknown, savedViews: readonly SavedView[] = []): value is TaskViewKey {
+  if (isBuiltInTaskViewKey(value)) return true;
+  return findSavedView(savedViews, parseSavedViewId(value)) != null;
+}
+
+/** Turns a saved view into the same shape the menu renders built-ins with. */
+export function savedTaskView(view: SavedView): TaskView {
+  return {
+    key: savedViewKey(view.id),
+    label: view.label,
+    surface: "issues",
+    filters: view.filters,
+    savedViewId: view.id,
+    hint: view.hint,
+  };
+}
+
+/**
+ * Resolves a key to its view. Built-ins need no second argument; a saved key
+ * needs the list it lives in. A saved key whose view is gone (a stale
+ * bookmark, a view deleted on another tab) falls back to the default view
+ * rather than throwing — `normalizeTaskViewKey` already rejects those before
+ * they get here, so this is a guard, not a path.
+ */
+export function taskView(key: TaskViewKey, savedViews: readonly SavedView[] = []): TaskView {
+  if (isBuiltInTaskViewKey(key)) return VIEWS_BY_KEY.get(key)!;
+  const saved = findSavedView(savedViews, parseSavedViewId(key));
+  return saved ? savedTaskView(saved) : VIEWS_BY_KEY.get(DEFAULT_TASK_VIEW as BuiltInTaskViewKey)!;
 }
 
 /** Resolves a `?view=` value, falling back to `null` so callers can pick a default. */
-export function normalizeTaskViewKey(value: string | null | undefined): TaskViewKey | null {
-  return isTaskViewKey(value) ? value : null;
+export function normalizeTaskViewKey(
+  value: string | null | undefined,
+  savedViews: readonly SavedView[] = [],
+): TaskViewKey | null {
+  return isTaskViewKey(value, savedViews) ? value : null;
+}
+
+/** The built-in groups plus the user's own, for the Views menu. */
+export function taskViewGroups(savedViews: readonly SavedView[] = []): TaskViewGroup[] {
+  if (savedViews.length === 0) return TASK_VIEW_GROUPS;
+  return [
+    ...TASK_VIEW_GROUPS,
+    { label: SAVED_VIEW_GROUP_LABEL, views: savedViews.map(savedTaskView) },
+  ];
 }
 
 export function taskViewPath(key: TaskViewKey): string {
@@ -109,9 +173,10 @@ export function taskViewForInboxTab(tab: string | null | undefined): TaskViewKey
     : DEFAULT_TASK_VIEW;
 }
 
-export function loadLastTaskView(): TaskViewKey {
+export function loadLastTaskView(savedViews: readonly SavedView[] = []): TaskViewKey {
   try {
-    return normalizeTaskViewKey(window.localStorage.getItem(TASK_LAST_VIEW_KEY)) ?? DEFAULT_TASK_VIEW;
+    return normalizeTaskViewKey(window.localStorage.getItem(TASK_LAST_VIEW_KEY), savedViews)
+      ?? DEFAULT_TASK_VIEW;
   } catch {
     return DEFAULT_TASK_VIEW;
   }
@@ -143,10 +208,15 @@ export function resolveInitialTaskView(
   requested: string | null,
   hasOrganizationScopedParam: boolean,
   lastUsed: TaskViewKey,
+  savedViews: readonly SavedView[] = [],
 ): TaskViewKey {
-  const explicit = normalizeTaskViewKey(requested);
+  const explicit = normalizeTaskViewKey(requested, savedViews);
   // Inbox views can't apply organization filters, so a link carrying one
-  // opens All tasks rather than silently dropping the filter.
-  if (hasOrganizationScopedParam && (!explicit || taskView(explicit).surface === "inbox")) return "all";
+  // opens All tasks rather than silently dropping the filter. Saved views
+  // render on the task list, so they keep the filter and stay put.
+  if (hasOrganizationScopedParam && (!explicit || taskView(explicit, savedViews).surface === "inbox")) return "all";
   return explicit ?? lastUsed;
 }
+
+/** Re-exported so callers resolving a view key don't need both modules. */
+export { isSavedViewKey, parseSavedViewId, savedViewKey };

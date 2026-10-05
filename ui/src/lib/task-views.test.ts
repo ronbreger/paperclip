@@ -6,10 +6,14 @@ import {
   isTaskViewKey,
   normalizeTaskViewKey,
   resolveInitialTaskView,
+  SAVED_VIEW_GROUP_LABEL,
+  savedViewKey,
   taskView,
   taskViewForInboxTab,
+  taskViewGroups,
   taskViewPath,
 } from "./task-views";
+import { defaultIssueFilterState } from "./issue-filters";
 
 describe("task views registry (PAP-670)", () => {
   it("covers every legacy Inbox tab and task status preset exactly once", () => {
@@ -93,5 +97,56 @@ describe("resolveInitialTaskView", () => {
     // My-work view would drop the filter they carry.
     expect(resolveInitialTaskView(null, true, "mine")).toBe("all");
     expect(resolveInitialTaskView(null, true, "blocked")).toBe("all");
+  });
+});
+
+describe("saved views in the registry", () => {
+  const savedViews = [
+    {
+      id: "wb",
+      label: "Workbench",
+      hint: "Parked ideas",
+      filters: { ...defaultIssueFilterState, projects: ["p1"], statuses: ["backlog"] },
+    },
+  ];
+
+  it("appends one group for the user's own views and leaves the built-ins untouched", () => {
+    expect(taskViewGroups()).toEqual(TASK_VIEW_GROUPS);
+    const groups = taskViewGroups(savedViews);
+    expect(groups.slice(0, TASK_VIEW_GROUPS.length)).toEqual(TASK_VIEW_GROUPS);
+    expect(groups.at(-1)?.label).toBe(SAVED_VIEW_GROUP_LABEL);
+    expect(groups.at(-1)?.views.map((view) => view.key)).toEqual(["saved:wb"]);
+  });
+
+  it("resolves a saved key to an issues-surface view carrying the whole filter set", () => {
+    const view = taskView("saved:wb", savedViews);
+    expect(view.label).toBe("Workbench");
+    expect(view.surface).toBe("issues");
+    expect(view.savedViewId).toBe("wb");
+    expect(view.filters?.projects).toEqual(["p1"]);
+    expect(view.filters?.statuses).toEqual(["backlog"]);
+  });
+
+  it("accepts a saved key only while that view exists", () => {
+    expect(isTaskViewKey("saved:wb", savedViews)).toBe(true);
+    expect(isTaskViewKey("saved:gone", savedViews)).toBe(false);
+    expect(isTaskViewKey("saved:wb")).toBe(false);
+    expect(normalizeTaskViewKey("saved:wb", savedViews)).toBe("saved:wb");
+    expect(normalizeTaskViewKey("saved:gone", savedViews)).toBeNull();
+  });
+
+  it("falls back to the default view rather than throwing on a deleted saved key", () => {
+    expect(taskView("saved:gone", savedViews).key).toBe(DEFAULT_TASK_VIEW);
+  });
+
+  it("keeps an organization-scoped link on the saved view it asked for", () => {
+    // Saved views render on the task list, so unlike an inbox view they can
+    // carry an `?assignee=` or `?q=` and must not be bounced to All tasks.
+    expect(resolveInitialTaskView("saved:wb", true, "mine", savedViews)).toBe("saved:wb");
+    expect(resolveInitialTaskView("mine", true, "mine", savedViews)).toBe("all");
+  });
+
+  it("addresses a saved view through the same ?view= param", () => {
+    expect(taskViewPath(savedViewKey("wb"))).toBe("/issues?view=saved:wb");
   });
 });

@@ -7,11 +7,13 @@ import {
   attentionDateBucket,
   attentionDetailLine,
   attentionIsNewToday,
+  attentionItemIssueId,
   attentionKind,
   attentionStatus,
   attentionTaskRef,
   buildAttentionFilterOptions,
   buildDeskShelves,
+  collectNeedsHumanIssueIds,
   countActiveAttentionFilters,
   defaultAttentionFilterState,
   filterAttentionItems,
@@ -657,5 +659,59 @@ describe("planAttentionRenderRows (PAP-13784 incremental rendering)", () => {
     expect(plan.snoozedRows).toHaveLength(2);
     expect(plan.dismissedRows).toHaveLength(0);
     expect(plan.hasMoreRows).toBe(true);
+  });
+});
+
+describe("attention → task-list filter", () => {
+  it("collects the issue behind each item a person has to clear", () => {
+    const issueRef = { kind: "issue" as const, id: "i1", companyId: "c1", title: "T", identifier: "P-1", status: "todo", href: null };
+    const ids = collectNeedsHumanIssueIds([
+      buildItem({ id: "1", sourceKind: "issue_thread_interaction", relatedIssue: issueRef }),
+      buildItem({ id: "2", sourceKind: "approval", relatedIssue: { ...issueRef, id: "i2" } }),
+      buildItem({ id: "3", sourceKind: "review", subject: { ...issueRef, id: "i3" } }),
+    ]);
+    expect([...ids].sort()).toEqual(["i1", "i2", "i3"]);
+  });
+
+  it("leaves out the state-derived sources an agent clears, not the user", () => {
+    const issueRef = { kind: "issue" as const, id: "i1", companyId: "c1", title: "T", identifier: null, status: null, href: null };
+    for (const sourceKind of ["failed_run", "budget_alert", "agent_error_alert", "recovery_action"] as AttentionSourceKind[]) {
+      expect(collectNeedsHumanIssueIds([buildItem({ sourceKind, relatedIssue: issueRef })]).size).toBe(0);
+    }
+  });
+
+  it("leaves out items the user already dismissed, snoozed or archived", () => {
+    const issueRef = { kind: "issue" as const, id: "i1", companyId: "c1", title: "T", identifier: null, status: null, href: null };
+    const now = Date.parse("2026-07-09T12:00:00Z");
+    expect(collectNeedsHumanIssueIds([buildItem({
+      sourceKind: "decision",
+      relatedIssue: issueRef,
+      dismissal: { kind: "dismiss", dismissedAt: "2026-07-09T11:00:00Z", snoozedUntil: null, isActive: true },
+    })], now).size).toBe(0);
+    expect(collectNeedsHumanIssueIds([buildItem({
+      sourceKind: "decision",
+      relatedIssue: issueRef,
+      snoozedUntil: "2026-07-10T12:00:00Z",
+    })], now).size).toBe(0);
+    expect(collectNeedsHumanIssueIds([buildItem({
+      sourceKind: "decision",
+      relatedIssue: issueRef,
+      archivedAt: "2026-07-09T11:00:00Z",
+    })], now).size).toBe(0);
+  });
+
+  it("includes an item whose snooze has already run out", () => {
+    const issueRef = { kind: "issue" as const, id: "i1", companyId: "c1", title: "T", identifier: null, status: null, href: null };
+    const now = Date.parse("2026-07-11T12:00:00Z");
+    expect(collectNeedsHumanIssueIds([buildItem({
+      sourceKind: "decision",
+      relatedIssue: issueRef,
+      snoozedUntil: "2026-07-10T12:00:00Z",
+    })], now).size).toBe(1);
+  });
+
+  it("skips an item that hangs off no issue at all", () => {
+    expect(collectNeedsHumanIssueIds([buildItem({ sourceKind: "join_request" })]).size).toBe(0);
+    expect(attentionItemIssueId(buildItem())).toBeNull();
   });
 });

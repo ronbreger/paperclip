@@ -14,13 +14,15 @@ import { queryKeys } from "../lib/queryKeys";
 import { createIssueDetailLocationState } from "../lib/issueDetailBreadcrumb";
 import { EmptyState } from "../components/EmptyState";
 import { IssuesList } from "../components/IssuesList";
-import { TaskViewsMenu } from "../components/TaskViewsMenu";
+import { TaskViewsMenu, type TaskViewCount } from "../components/TaskViewsMenu";
+import { SaveTaskViewDialog } from "../components/SaveTaskViewDialog";
 import { Button } from "@/components/ui/button";
 import { CircleDot, Plus } from "lucide-react";
 import type { Issue } from "@paperclipai/shared";
 import { useStreamlinedUiEnabled } from "../hooks/useStreamlinedUiEnabled";
 import { useCombinedInboxTasksEnabled } from "../hooks/useCombinedInboxTasksEnabled";
 import { useDialogActions } from "../context/DialogContext";
+import { useToastActions } from "../context/ToastContext";
 import { useInboxBadge } from "../hooks/useInboxBadge";
 import { Inbox } from "./Inbox";
 import {
@@ -31,8 +33,27 @@ import {
   resolveInitialTaskView,
   saveLastTaskView,
   taskView,
+  taskViewGroups,
   type TaskViewKey,
 } from "../lib/task-views";
+import {
+  SAVED_VIEW_LIMIT,
+  canSaveAnotherView,
+  loadSavedViews,
+  newSavedViewId,
+  removeSavedView,
+  saveSavedViews,
+  savedViewKey,
+  uniqueSavedViewLabel,
+  upsertSavedView,
+  type SavedView,
+} from "../lib/saved-views";
+import {
+  defaultIssueFilterState,
+  type IssueFilterState,
+} from "../lib/issue-filters";
+import { describeIssueFilters } from "../lib/issue-filter-summary";
+import { useAttentionIssueIds } from "../hooks/useAttentionIssueIds";
 
 const WORKSPACE_FILTER_ISSUE_LIMIT = 1000;
 const ISSUES_PAGE_SIZE = 100;
@@ -102,7 +123,29 @@ function StreamlinedTasks() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { selectedCompanyId } = useCompany();
   const { openNewIssue } = useDialogActions();
+  const { pushToast } = useToastActions();
   const inboxBadge = useInboxBadge(selectedCompanyId);
+
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() => loadSavedViews(selectedCompanyId));
+  // Saved views are per organization, so switching organizations swaps the list.
+  useEffect(() => {
+    setSavedViews(loadSavedViews(selectedCompanyId));
+  }, [selectedCompanyId]);
+  // Storage can refuse the write (private browsing, a full quota). When it
+  // does, keep the list as it was and say so, rather than showing a view that
+  // disappears on the next reload.
+  const persistSavedViews = useCallback((next: SavedView[]): boolean => {
+    if (!saveSavedViews(selectedCompanyId, next)) {
+      pushToast({
+        title: "Could not save the view",
+        body: "Browser storage is unavailable or full.",
+        tone: "error",
+      });
+      return false;
+    }
+    setSavedViews(next);
+    return true;
+  }, [pushToast, selectedCompanyId]);
 
   const requestedView = searchParams.get(TASK_VIEW_PARAM);
   const hasOrganizationScopedParam = ORGANIZATION_SCOPED_PARAMS.some(
@@ -110,21 +153,76 @@ function StreamlinedTasks() {
   );
   // Read the stored view once per mount so a later write can't yank the view
   // out from under the user mid-session.
-  const [lastUsedView] = useState<TaskViewKey>(() => loadLastTaskView());
-  const view = resolveInitialTaskView(requestedView, hasOrganizationScopedParam, lastUsedView);
-  const definition = taskView(view);
+  const [lastUsedView] = useState<TaskViewKey>(() => loadLastTaskView(loadSavedViews(selectedCompanyId)));
+  const view = resolveInitialTaskView(requestedView, hasOrganizationScopedParam, lastUsedView, savedViews);
+  const definition = taskView(view, savedViews);
+
+  // Counting every view needs the loaded tasks, which only the task list has;
+  // it reports them back through `onFilterSetCounts`.
+  const countFilterSets = useMemo(() => {
+    const sets: Record<string, IssueFilterState> = {};
+    for (const group of taskViewGroups(savedViews)) {
+      for (const groupView of group.views) {
+        if (groupView.surface !== "issues") continue;
+        sets[groupView.key] = groupView.filters
+          ?? { ...defaultIssueFilterState, statuses: groupView.statuses ?? [] };
+      }
+    }
+    return sets;
+  }, [savedViews]);
+  const [viewCounts, setViewCounts] = useState<Record<string, TaskViewCount>>({});
+  const handleFilterSetCounts = useCallback((counts: Record<string, number>, partial: boolean) => {
+    setViewCounts(Object.fromEntries(
+      Object.entries(counts).map(([key, value]) => [key, { value, partial }]),
+    ));
+  }, []);
+
+  // The attention feed only loads when a view on screen actually filters on it.
+  const needsAttentionFeed = Object.values(countFilterSets).some((set) => set.attention.length > 0);
+  const attention = useAttentionIssueIds(selectedCompanyId, needsAttentionFeed);
+
+  const [currentFilters, setCurrentFilters] = useState<IssueFilterState>(defaultIssueFilterState);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const filterSummary = useMemo(() => describeIssueFilters(currentFilters), [currentFilters]);
+  const suggestedLabel = useMemo(
+    () => uniqueSavedViewLabel(savedViews, filterSummary.slice(0, 40)),
+    [savedViews, filterSummary],
+  );
+  const handleSaveView = useCallback((label: string) => {
+    if (!canSaveAnotherView(savedViews)) {
+      pushToast({
+        title: "View limit reached",
+        body: `Delete a saved view first. The limit is ${SAVED_VIEW_LIMIT}.`,
+        tone: "error",
+      });
+      return;
+    }
+    const saved: SavedView = {
+      id: newSavedViewId(),
+      label,
+      hint: describeIssueFilters(currentFilters),
+      filters: currentFilters,
+    };
+    if (!persistSavedViews(upsertSavedView(savedViews, saved))) return;
+    saveLastTaskView(savedViewKey(saved.id));
+    navigate(`/issues?${TASK_VIEW_PARAM}=${savedViewKey(saved.id)}`);
+  }, [currentFilters, navigate, persistSavedViews, pushToast, savedViews]);
+  const handleDeleteSavedView = useCallback((savedViewId: string) => {
+    if (!persistSavedViews(removeSavedView(savedViews, savedViewId))) return;
+    if (view === savedViewKey(savedViewId)) navigate(`/issues?${TASK_VIEW_PARAM}=all`);
+  }, [navigate, persistSavedViews, savedViews, view]);
 
   // Make the resolved view addressable without dropping the params that
   // brought the user here — and correct a requested view that was overridden
   // (an inbox view carrying an organization filter opens All tasks).
   useEffect(() => {
-    if (normalizeTaskViewKey(requestedView) === view) return;
+    if (normalizeTaskViewKey(requestedView, savedViews) === view) return;
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set(TASK_VIEW_PARAM, view);
       return next;
     }, { replace: true });
-  }, [requestedView, view, setSearchParams]);
+  }, [requestedView, savedViews, view, setSearchParams]);
 
   const selectView = useCallback((next: TaskViewKey) => {
     saveLastTaskView(next);
@@ -134,7 +232,17 @@ function StreamlinedTasks() {
   }, [navigate]);
 
   const viewsMenu = (
-    <TaskViewsMenu value={view} onChange={selectView} badgeCount={inboxBadge.inbox} />
+    <TaskViewsMenu
+      value={view}
+      onChange={selectView}
+      badgeCount={inboxBadge.inbox}
+      savedViews={savedViews}
+      counts={viewCounts}
+      // Saving ad-hoc filters only makes sense where filters exist; the inbox
+      // surface has its own controls, so it gets the menu without the action.
+      onSaveCurrentView={definition.surface === "issues" ? () => setSaveDialogOpen(true) : undefined}
+      onDeleteSavedView={handleDeleteSavedView}
+    />
   );
 
   if (definition.surface === "inbox") {
@@ -155,13 +263,48 @@ function StreamlinedTasks() {
     );
   }
 
-  return <OrganizationIssues toolbarContext={viewsMenu} initialStatuses={definition.statuses} />;
+  return (
+    <>
+      <OrganizationIssues
+        toolbarContext={viewsMenu}
+        initialStatuses={definition.filters ? undefined : definition.statuses}
+        initialFilters={definition.filters}
+        attentionIssueIds={attention.byToken}
+        attentionIssueIdsReady={attention.ready}
+        countFilterSets={countFilterSets}
+        onFilterSetCounts={handleFilterSetCounts}
+        onFiltersChange={setCurrentFilters}
+      />
+      <SaveTaskViewDialog
+        open={saveDialogOpen}
+        onOpenChange={setSaveDialogOpen}
+        suggestedLabel={suggestedLabel}
+        summary={filterSummary}
+        onSave={handleSaveView}
+      />
+    </>
+  );
 }
 
 function OrganizationIssues({
   toolbarContext,
   initialStatuses,
-}: { toolbarContext?: ReactNode; initialStatuses?: string[] } = {}) {
+  initialFilters,
+  attentionIssueIds,
+  attentionIssueIdsReady,
+  countFilterSets,
+  onFilterSetCounts,
+  onFiltersChange,
+}: {
+  toolbarContext?: ReactNode;
+  initialStatuses?: string[];
+  initialFilters?: IssueFilterState;
+  attentionIssueIds?: ReadonlyMap<string, ReadonlySet<string>>;
+  attentionIssueIdsReady?: boolean;
+  countFilterSets?: Readonly<Record<string, IssueFilterState>>;
+  onFilterSetCounts?: (counts: Record<string, number>, partial: boolean) => void;
+  onFiltersChange?: (filters: IssueFilterState) => void;
+} = {}) {
   const { enabled: streamlinedUiEnabled } = useStreamlinedUiEnabled();
   const issuesPresentation = resolveIssuesPresentation(streamlinedUiEnabled);
   const { selectedCompanyId } = useCompany();
@@ -320,6 +463,12 @@ function OrganizationIssues({
       initialAssignees={searchParams.get("assignee") ? [searchParams.get("assignee")!] : undefined}
       initialWorkspaces={initialWorkspaces.length > 0 ? initialWorkspaces : undefined}
       initialStatuses={initialStatuses}
+      initialFilters={initialFilters}
+      attentionIssueIds={attentionIssueIds}
+      attentionIssueIdsReady={attentionIssueIdsReady}
+      countFilterSets={countFilterSets}
+      onFilterSetCounts={onFilterSetCounts}
+      onFiltersChange={onFiltersChange}
       toolbarContext={toolbarContext}
       initialSearch={syncedSearch}
       onSearchChange={handleSearchChange}

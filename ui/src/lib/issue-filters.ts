@@ -10,6 +10,13 @@ export type IssueFilterWorkspaceContext = {
   defaultProjectWorkspaceIdByProjectId?: ReadonlyMap<string, string>;
   externalObjectSummaryByIssueId?: ReadonlyMap<string, ExternalObjectSummary>;
   externalObjectSummariesReady?: boolean;
+  /**
+   * Issue ids carrying an unresolved attention item, keyed by the token in
+   * `IssueFilterState.attention`. Supplied by whoever already holds the
+   * attention feed; the filter itself never fetches.
+   */
+  attentionIssueIdsByToken?: ReadonlyMap<string, ReadonlySet<string>>;
+  attentionReady?: boolean;
 };
 
 export type IssueFilterState = {
@@ -36,8 +43,21 @@ export type IssueFilterState = {
    *   - `none`           — issues with zero external objects
    */
   externalObjectStatuses: string[];
+  /**
+   * Human-attention filter. Like `externalObjectStatuses` these are tokens
+   * resolved against data the issue row does not carry, so they are evaluated
+   * from `IssueFilterWorkspaceContext.attentionIssueIdsByToken`:
+   *
+   *   - `needs_me` — the issue has at least one unresolved item only a person
+   *                  can clear (a decision card, an approval, a join request,
+   *                  a review). Resolved and superseded items are absent from
+   *                  the attention feed, so they never match.
+   */
+  attention: string[];
   hideRoutineExecutions: boolean;
 };
+
+export const ATTENTION_FILTER_NEEDS_ME = "needs_me";
 
 export const defaultIssueFilterState: IssueFilterState = {
   statuses: [],
@@ -49,6 +69,7 @@ export const defaultIssueFilterState: IssueFilterState = {
   workspaces: [],
   liveOnly: false,
   externalObjectStatuses: [],
+  attention: [],
   hideRoutineExecutions: false,
 };
 
@@ -115,6 +136,7 @@ export function normalizeIssueFilterState(value: unknown): IssueFilterState {
     workspaces: normalizeIssueFilterValueArray(candidate.workspaces),
     liveOnly: candidate.liveOnly === true,
     externalObjectStatuses: normalizeIssueFilterValueArray(candidate.externalObjectStatuses),
+    attention: normalizeIssueFilterValueArray(candidate.attention),
     hideRoutineExecutions: candidate.hideRoutineExecutions === true,
   };
 }
@@ -264,6 +286,16 @@ export function applyIssueFilters(
       );
     });
   }
+  if (state.attention.length > 0) {
+    // Same contract as the external-object filter: until the feed that backs
+    // these tokens has loaded, show nothing rather than a list that silently
+    // ignores the filter.
+    const byToken = workspaceContext.attentionIssueIdsByToken;
+    if (!byToken || workspaceContext.attentionReady !== true) return [];
+    result = result.filter((issue) =>
+      state.attention.some((token) => byToken.get(token)?.has(issue.id) === true),
+    );
+  }
   return result;
 }
 
@@ -281,6 +313,7 @@ export function countActiveIssueFilters(
   if (state.workspaces.length > 0) count += 1;
   if (state.liveOnly) count += 1;
   if (state.externalObjectStatuses.length > 0) count += 1;
+  if (state.attention.length > 0) count += 1;
   if (enableRoutineVisibilityFilter && state.hideRoutineExecutions) count += 1;
   return count;
 }

@@ -915,3 +915,56 @@ export function groupAttentionItems(
     })
     .map(([key, value]) => ({ key, label: value.label, items: value.items }));
 }
+
+// ---------------------------------------------------------------------------
+// Attention → task-list filter
+//
+// The task list carries no pending-decision signal of its own: an issue row
+// says nothing about a decision card waiting on it. Rather than add a second
+// source of truth, the `attention` filter (`issue-filters.ts`) reads the feed
+// that already answers the question and reduces it to a set of issue ids.
+// Because the feed is unresolved-only, "exclude what is already answered or
+// superseded" needs no rule here — those rows are simply absent.
+// ---------------------------------------------------------------------------
+
+/**
+ * Sources where a person is the one who has to act. Deliberately excludes the
+ * state-derived sources (failed runs, budget alerts, agent errors, recovery):
+ * those are operational noise an agent usually clears, not a decision waiting
+ * on the user.
+ */
+export const NEEDS_HUMAN_SOURCE_KINDS: ReadonlySet<AttentionSourceKind> = new Set<AttentionSourceKind>([
+  "approval",
+  "decision",
+  "issue_thread_interaction",
+  "join_request",
+  "review",
+]);
+
+/** The issue an attention item hangs off, when it hangs off one at all. */
+export function attentionItemIssueId(item: AttentionItem): string | null {
+  if (item.relatedIssue?.kind === "issue") return item.relatedIssue.id;
+  if (item.subject.kind === "issue") return item.subject.id;
+  return null;
+}
+
+/**
+ * Issue ids with at least one unresolved item only a person can clear.
+ * Dismissed and still-snoozed rows are left out — the user already said "not
+ * now", and a view called "awaiting you" that ignores that is just the feed.
+ */
+export function collectNeedsHumanIssueIds(
+  items: readonly AttentionItem[] | undefined,
+  now: number = Date.now(),
+): Set<string> {
+  const issueIds = new Set<string>();
+  for (const item of items ?? []) {
+    if (!NEEDS_HUMAN_SOURCE_KINDS.has(item.sourceKind)) continue;
+    if (item.archivedAt) continue;
+    if (item.dismissal?.isActive) continue;
+    if (item.snoozedUntil && new Date(item.snoozedUntil).getTime() > now) continue;
+    const issueId = attentionItemIssueId(item);
+    if (issueId) issueIds.add(issueId);
+  }
+  return issueIds;
+}
