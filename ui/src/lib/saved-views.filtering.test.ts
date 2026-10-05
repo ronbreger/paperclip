@@ -1,11 +1,12 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import type { Issue } from "@paperclipai/shared";
+import type { AttentionItem, AttentionSourceKind, Issue } from "@paperclipai/shared";
 import { applyIssueFilters, defaultIssueFilterState, type IssueFilterState } from "./issue-filters";
 import { ATTENTION_FILTER_NEEDS_ME } from "./issue-filters";
 import { taskView, taskViewGroups } from "./task-views";
 import { savedViewKey, type SavedView } from "./saved-views";
+import { collectNeedsHumanIssueIds } from "./attention";
 
 /**
  * The end a user sees: four saved views over one set of tasks, each returning
@@ -94,10 +95,66 @@ const savedViews: SavedView[] = [
   { id: "review", label: "Review", hint: "Awaiting acceptance", filters: filters({ statuses: ["in_review"] }) },
 ];
 
-// Only `asking` still has a pending card; `answered` was resolved, so the
-// feed no longer carries it.
+/**
+ * The attention set is built the way the app builds it — from feed items
+ * through `collectNeedsHumanIssueIds` — so this exercises the source-kind and
+ * finished-task rules rather than restating their result.
+ *
+ * `answered` was resolved, so the feed no longer carries it at all.
+ */
+function attentionItem(
+  sourceKind: AttentionSourceKind,
+  issueId: string,
+  status = "todo",
+): AttentionItem {
+  return {
+    id: `att-${issueId}-${sourceKind}`,
+    companyId: "company-1",
+    sourceKind,
+    subject: { kind: "interaction", id: `s-${issueId}`, companyId: "company-1", title: null, identifier: null, status: null, href: null },
+    whyNow: "",
+    decisionVerbs: [],
+    inlineResolvable: true,
+    entryRule: "",
+    exitRule: "",
+    dedupKey: `d-${issueId}`,
+    dismissalKey: `k-${issueId}`,
+    dismissal: null,
+    severity: "medium",
+    rank: 0,
+    activityAt: "2026-01-01T00:00:00Z",
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    relatedIssue: { kind: "issue", id: issueId, companyId: "company-1", title: null, identifier: null, status, href: null },
+    project: null,
+    workspace: null,
+    expiresAt: null,
+    ruleKey: null,
+    originAgentName: null,
+    queues: [],
+    shelf: false,
+    retentionDays: 30,
+    keep: false,
+    archivedAt: null,
+    retentionVersion: 1,
+    decideBy: null,
+    decideByAttribution: null,
+    snoozedUntil: null,
+    detail: null,
+    trainingExampleId: null,
+  };
+}
+
+const feed: AttentionItem[] = [
+  attentionItem("issue_thread_interaction", "asking"),
+  // A review on the task that is in review. It must not reach Needs Ron.
+  attentionItem("review", "reviewing", "in_review"),
+  // A card left open on a task that was closed anyway.
+  attentionItem("approval", "shipped", "done"),
+];
+
 const context = {
-  attentionIssueIdsByToken: new Map([[ATTENTION_FILTER_NEEDS_ME, new Set(["asking"])]]),
+  attentionIssueIdsByToken: new Map([[ATTENTION_FILTER_NEEDS_ME, collectNeedsHumanIssueIds(feed)]]),
   attentionReady: true,
 };
 
@@ -120,6 +177,22 @@ describe("the four starter views over one task set", () => {
 
   it("Needs Ron shows only what is still unresolved", () => {
     expect(rowsFor("needs-ron")).toEqual(["asking"]);
+  });
+
+  it("Needs Ron leaves reviews to the Review view", () => {
+    expect(rowsFor("needs-ron")).not.toContain("reviewing");
+    expect(rowsFor("review")).toContain("reviewing");
+  });
+
+  it("Needs Ron drops a card left open on a finished task", () => {
+    expect(rowsFor("needs-ron")).not.toContain("shipped");
+  });
+
+  it("the Needs Ron count equals the rows it shows", () => {
+    const view = taskView(savedViewKey("needs-ron"), savedViews);
+    const rows = applyIssueFilters(issues, view.filters!, null, false, undefined, context);
+    expect(rows.length).toBe(rowsFor("needs-ron").length);
+    expect(rows.map((issue) => issue.id)).toEqual(rowsFor("needs-ron"));
   });
 
   it("Active work shows what is running", () => {

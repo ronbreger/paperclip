@@ -171,10 +171,8 @@ function StreamlinedTasks() {
     return sets;
   }, [savedViews]);
   const [viewCounts, setViewCounts] = useState<Record<string, TaskViewCount>>({});
-  const handleFilterSetCounts = useCallback((counts: Record<string, number>, partial: boolean) => {
-    setViewCounts(Object.fromEntries(
-      Object.entries(counts).map(([key, value]) => [key, { value, partial }]),
-    ));
+  const handleFilterSetCounts = useCallback((counts: Record<string, TaskViewCount>) => {
+    setViewCounts(counts);
   }, []);
 
   // The attention feed only loads when a view on screen actually filters on it.
@@ -302,7 +300,7 @@ function OrganizationIssues({
   attentionIssueIds?: ReadonlyMap<string, ReadonlySet<string>>;
   attentionIssueIdsReady?: boolean;
   countFilterSets?: Readonly<Record<string, IssueFilterState>>;
-  onFilterSetCounts?: (counts: Record<string, number>, partial: boolean) => void;
+  onFilterSetCounts?: (counts: Record<string, { value: number; partial: boolean }>) => void;
   onFiltersChange?: (filters: IssueFilterState) => void;
 } = {}) {
   const { enabled: streamlinedUiEnabled } = useStreamlinedUiEnabled();

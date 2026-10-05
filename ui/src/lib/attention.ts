@@ -928,18 +928,27 @@ export function groupAttentionItems(
 // ---------------------------------------------------------------------------
 
 /**
- * Sources where a person is the one who has to act. Deliberately excludes the
- * state-derived sources (failed runs, budget alerts, agent errors, recovery):
- * those are operational noise an agent usually clears, not a decision waiting
- * on the user.
+ * Sources where a person is the one who has to act, and where the work is
+ * actually stopped until they do.
+ *
+ * Two deliberate exclusions:
+ *
+ *   - The state-derived sources (failed runs, budget alerts, agent errors,
+ *     recovery). Operational noise an agent usually clears, not a decision
+ *     waiting on the user.
+ *   - `review`. A review is waiting *for* someone, but nothing is blocked on
+ *     it, and the task list already has a status for it. Putting reviews here
+ *     too would mean the same task appears in two views for two reasons.
  */
 export const NEEDS_HUMAN_SOURCE_KINDS: ReadonlySet<AttentionSourceKind> = new Set<AttentionSourceKind>([
   "approval",
   "decision",
   "issue_thread_interaction",
   "join_request",
-  "review",
 ]);
+
+/** A card on a finished task cannot need an answer. */
+const TERMINAL_ISSUE_STATUSES: ReadonlySet<string> = new Set(["done", "cancelled"]);
 
 /** The issue an attention item hangs off, when it hangs off one at all. */
 export function attentionItemIssueId(item: AttentionItem): string | null {
@@ -948,10 +957,20 @@ export function attentionItemIssueId(item: AttentionItem): string | null {
   return null;
 }
 
+/** The status of that issue, as the feed reported it. */
+function attentionItemIssueStatus(item: AttentionItem): string | null {
+  if (item.relatedIssue?.kind === "issue") return item.relatedIssue.status;
+  if (item.subject.kind === "issue") return item.subject.status;
+  return null;
+}
+
 /**
  * Issue ids with at least one unresolved item only a person can clear.
+ *
  * Dismissed and still-snoozed rows are left out — the user already said "not
  * now", and a view called "awaiting you" that ignores that is just the feed.
+ * A card on a task that is already `done` or `cancelled` is left out too: the
+ * task is over, so nothing is waiting on the answer.
  */
 export function collectNeedsHumanIssueIds(
   items: readonly AttentionItem[] | undefined,
@@ -963,6 +982,8 @@ export function collectNeedsHumanIssueIds(
     if (item.archivedAt) continue;
     if (item.dismissal?.isActive) continue;
     if (item.snoozedUntil && new Date(item.snoozedUntil).getTime() > now) continue;
+    const status = attentionItemIssueStatus(item);
+    if (status && TERMINAL_ISSUE_STATUSES.has(status)) continue;
     const issueId = attentionItemIssueId(item);
     if (issueId) issueIds.add(issueId);
   }

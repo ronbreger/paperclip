@@ -250,8 +250,15 @@ saved view.
 
 **Awaiting you** uses an attention filter. This filter shows the tasks that
 have an unresolved item that only a person can clear: a decision card, an
-approval, a join request or a review. Items that are answered, dismissed or
-snoozed are not in the list.
+approval or a join request. Items that are answered, dismissed or snoozed are
+not in the list, and neither are items on a task that is done or cancelled.
+
+Reviews are not in this view. A review waits for a person, but no work is
+stopped by it, and the **Review** view already shows it by status. One task in
+two views for two reasons is harder to read, not easier.
+
+The count on this view always equals the rows it shows. The list keeps
+loading pages until every task the attention feed named is in view.
 
 Saved views are kept in the browser, for each organization. They are not
 synchronized between devices.

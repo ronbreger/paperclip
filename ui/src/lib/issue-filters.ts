@@ -49,8 +49,8 @@ export type IssueFilterState = {
    * from `IssueFilterWorkspaceContext.attentionIssueIdsByToken`:
    *
    *   - `needs_me` — the issue has at least one unresolved item only a person
-   *                  can clear (a decision card, an approval, a join request,
-   *                  a review). Resolved and superseded items are absent from
+   *                  can clear: a decision card, an approval or a join
+   *                  request. Resolved and superseded items are absent from
    *                  the attention feed, so they never match.
    */
   attention: string[];

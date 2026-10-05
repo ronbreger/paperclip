@@ -81,7 +81,7 @@ export const STARTER_SAVED_VIEWS: readonly SavedView[] = [
   {
     id: "awaiting-you",
     label: "Awaiting you",
-    hint: "Unresolved items only a person can clear",
+    hint: "Decisions, approvals and join requests waiting on you",
     filters: filters({ attention: [ATTENTION_FILTER_NEEDS_ME] }),
   },
 ];

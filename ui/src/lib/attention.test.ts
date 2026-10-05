@@ -14,6 +14,7 @@ import {
   buildAttentionFilterOptions,
   buildDeskShelves,
   collectNeedsHumanIssueIds,
+  NEEDS_HUMAN_SOURCE_KINDS,
   countActiveAttentionFilters,
   defaultAttentionFilterState,
   filterAttentionItems,
@@ -668,7 +669,7 @@ describe("attention → task-list filter", () => {
     const ids = collectNeedsHumanIssueIds([
       buildItem({ id: "1", sourceKind: "issue_thread_interaction", relatedIssue: issueRef }),
       buildItem({ id: "2", sourceKind: "approval", relatedIssue: { ...issueRef, id: "i2" } }),
-      buildItem({ id: "3", sourceKind: "review", subject: { ...issueRef, id: "i3" } }),
+      buildItem({ id: "3", sourceKind: "join_request", subject: { ...issueRef, id: "i3" } }),
     ]);
     expect([...ids].sort()).toEqual(["i1", "i2", "i3"]);
   });
@@ -677,6 +678,30 @@ describe("attention → task-list filter", () => {
     const issueRef = { kind: "issue" as const, id: "i1", companyId: "c1", title: "T", identifier: null, status: null, href: null };
     for (const sourceKind of ["failed_run", "budget_alert", "agent_error_alert", "recovery_action"] as AttentionSourceKind[]) {
       expect(collectNeedsHumanIssueIds([buildItem({ sourceKind, relatedIssue: issueRef })]).size).toBe(0);
+    }
+  });
+
+  it("leaves out reviews — nothing is blocked on them, and Review shows them by status", () => {
+    const issueRef = { kind: "issue" as const, id: "i1", companyId: "c1", title: "T", identifier: null, status: "in_review", href: null };
+    expect(collectNeedsHumanIssueIds([buildItem({ sourceKind: "review", relatedIssue: issueRef })]).size).toBe(0);
+    expect(NEEDS_HUMAN_SOURCE_KINDS.has("review")).toBe(false);
+  });
+
+  it("leaves out a card on a task that is already finished", () => {
+    for (const status of ["done", "cancelled"]) {
+      const issueRef = { kind: "issue" as const, id: "i1", companyId: "c1", title: "T", identifier: null, status, href: null };
+      expect(collectNeedsHumanIssueIds([
+        buildItem({ sourceKind: "issue_thread_interaction", relatedIssue: issueRef }),
+      ]).size).toBe(0);
+    }
+  });
+
+  it("keeps a card on a task that is still open, whatever its status", () => {
+    for (const status of ["todo", "in_progress", "blocked", "in_review", "backlog"]) {
+      const issueRef = { kind: "issue" as const, id: "i1", companyId: "c1", title: "T", identifier: null, status, href: null };
+      expect(collectNeedsHumanIssueIds([
+        buildItem({ sourceKind: "approval", relatedIssue: issueRef }),
+      ]).size).toBe(1);
     }
   });
 

@@ -528,8 +528,8 @@ interface IssuesListProps {
    * count can never disagree with the rows the view goes on to show.
    */
   countFilterSets?: Readonly<Record<string, IssueFilterState>>;
-  /** `partial` is true while the server still has pages the count has not seen. */
-  onFilterSetCounts?: (counts: Record<string, number>, partial: boolean) => void;
+  /** Each count carries its own `partial`, since not every set is paged alike. */
+  onFilterSetCounts?: (counts: Record<string, { value: number; partial: boolean }>) => void;
   /** Opt in per surface while the canonical task row rolls out across collections. */
   rowPresentation?: IssueRowPresentation;
   /** Opt in per surface while the shared collection toolbar rolls out. */
@@ -1284,13 +1284,32 @@ function StreamlinedIssuesList({
     issueFilterContext,
   ]);
 
+  const loadedIssueIds = useMemo(() => new Set(issues.map((issue) => issue.id)), [issues]);
+
+  /**
+   * Whether every issue the attention feed named is already loaded. An
+   * attention view's count has to equal the rows it shows, so a count that
+   * has not yet seen one of those issues is reported as partial — and the
+   * effect below keeps paging until it has.
+   */
+  const attentionFullyLoaded = useCallback((filterSet: IssueFilterState) => {
+    if (filterSet.attention.length === 0) return null;
+    if (!attentionIssueIdsReady || !attentionIssueIds) return false;
+    for (const token of filterSet.attention) {
+      for (const issueId of attentionIssueIds.get(token) ?? []) {
+        if (!loadedIssueIds.has(issueId)) return false;
+      }
+    }
+    return true;
+  }, [attentionIssueIds, attentionIssueIdsReady, loadedIssueIds]);
+
   // Per-view counts. Deliberately counted against `issues` rather than the
   // search-scoped set: a view's count describes the view, not what the user
   // happens to be typing in the search box.
   const filterSetCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
+    const counts: Record<string, { value: number; partial: boolean }> = {};
     for (const [key, filterSet] of Object.entries(countFilterSets ?? {})) {
-      counts[key] = applyIssueFilters(
+      const value = applyIssueFilters(
         issues,
         filterSet,
         currentUserId,
@@ -1298,10 +1317,17 @@ function StreamlinedIssuesList({
         liveIssueIds,
         issueFilterContext,
       ).length;
+      const covered = attentionFullyLoaded(filterSet);
+      counts[key] = {
+        value,
+        partial: hasMoreIssues && covered !== true,
+      };
     }
     return counts;
   }, [
+    attentionFullyLoaded,
     countFilterSets,
+    hasMoreIssues,
     issues,
     currentUserId,
     enableRoutineVisibilityFilter,
@@ -1310,8 +1336,17 @@ function StreamlinedIssuesList({
   ]);
   const filterSetCountsKey = JSON.stringify(filterSetCounts);
   useEffect(() => {
-    onFilterSetCounts?.(JSON.parse(filterSetCountsKey), hasMoreIssues);
-  }, [filterSetCountsKey, hasMoreIssues, onFilterSetCounts]);
+    onFilterSetCounts?.(JSON.parse(filterSetCountsKey));
+  }, [filterSetCountsKey, onFilterSetCounts]);
+
+  // Keep paging while the active attention view is missing one of its issues.
+  // Bounded by `hasMoreIssues`, so it stops at the end of the collection.
+  const activeViewNeedsMorePages = viewState.attention.length > 0
+    && attentionFullyLoaded(viewState) === false;
+  useEffect(() => {
+    if (!activeViewNeedsMorePages || !hasMoreIssues) return;
+    onLoadMoreIssues?.();
+  }, [activeViewNeedsMorePages, hasMoreIssues, onLoadMoreIssues, issues.length]);
 
   const progressSummary = useMemo(
     () => shouldRenderSubIssueProgressSummary(showProgressSummary, issues.length)
