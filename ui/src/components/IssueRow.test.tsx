@@ -152,8 +152,8 @@ describe("IssueRow", () => {
     expect(title?.textContent).toContain("Canonical task");
     expect(metadata?.textContent).toBe("Live");
     expect(identifier?.textContent).toBe("PAP-42");
-    expect(statusLabel?.textContent).toBe("Doing");
-    expect(mobileMeta?.textContent).toBe("PAP-42·Doing");
+    expect(statusLabel?.textContent).toBe("In Progress");
+    expect(mobileMeta?.textContent).toBe("PAP-42·In Progress");
     expect(timestamp?.textContent).toBe("Updated now");
     expect(actions?.textContent).toBe("More");
     expect(identifier?.className).toContain("w-20");
@@ -190,8 +190,8 @@ describe("IssueRow", () => {
 
     const row = container.querySelector('[data-slot="task-row"]');
     expect(row?.querySelector('[data-slot="task-row-identifier"]')).toBeNull();
-    expect(row?.querySelector('[data-slot="task-row-status-label"]')?.textContent).toBe("Waiting");
-    expect(row?.querySelector('[data-slot="task-row-mobile-meta"]')?.textContent).toBe("Waiting");
+    expect(row?.querySelector('[data-slot="task-row-status-label"]')?.textContent).toBe("Blocked");
+    expect(row?.querySelector('[data-slot="task-row-mobile-meta"]')?.textContent).toBe("Blocked");
 
     act(() => root.unmount());
   });

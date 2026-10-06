@@ -1,27 +1,17 @@
 /**
- * Plain-language status words for task rows.
+ * The status word shown beside the glyph in a task row.
  *
- * Display only. The stored status values are untouched: a row reading "Doing"
- * is still `in_progress` everywhere else — filters, the status picker, the API
- * and the database. Nothing here is written back.
+ * Display only, and deliberately Paperclip's own terminology — `in_progress`
+ * reads "In Progress", not a local synonym. The stored status values are
+ * untouched: a row reading "In Progress" is still `in_progress` everywhere
+ * else — filters, the status picker, the API and the database.
  *
- * The status picker keeps its own wording on purpose: these words are tuned
- * for scanning a list, and a picker needs the stored names.
- *
- * `backlog` reads "Parked" rather than sharing "Later" with `todo`, so a task
- * queued up and a task set aside can be told apart at a glance.
+ * This is the same rule `StatusIcon` applies for its `showLabel` text, so a
+ * row and a detail header never disagree about a task.
  */
-const TASK_STATUS_DISPLAY_LABELS: Readonly<Record<string, string>> = {
-  in_progress: "Doing",
-  blocked: "Waiting",
-  in_review: "Review",
-  todo: "Later",
-  backlog: "Parked",
-  done: "Done",
-};
 
-/** Title-cases an unmapped status the same way `StatusIcon` does. */
-function fallbackLabel(status: string): string {
+/** Title-cases a stored status the same way `StatusIcon` does. */
+function statusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -42,6 +32,5 @@ export function taskStatusDisplayLabel(
   status: string,
   externalConversationState?: "active" | "waiting" | null,
 ): string {
-  const displayStatus = resolveTaskDisplayStatus(status, externalConversationState);
-  return TASK_STATUS_DISPLAY_LABELS[displayStatus] ?? fallbackLabel(displayStatus);
+  return statusLabel(resolveTaskDisplayStatus(status, externalConversationState));
 }

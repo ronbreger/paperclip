@@ -306,7 +306,7 @@ export function IssueRow({
           )}
           <span
             data-slot="task-row-status-label"
-            className="hidden w-14 shrink-0 truncate text-xs text-muted-foreground sm:block"
+            className="hidden w-20 shrink-0 truncate text-xs text-muted-foreground sm:block"
           >
             {statusLabel}
           </span>
@@ -315,7 +315,7 @@ export function IssueRow({
 
         <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
           {/* Narrow screens have no room for columns, so the same two facts ride
-              above the title as one line: "BRE-101 · Doing". */}
+              above the title as one line: "BRE-101 · In Progress". */}
           <span
             data-slot="task-row-mobile-meta"
             className="flex items-center gap-1 text-xs text-muted-foreground sm:hidden"
