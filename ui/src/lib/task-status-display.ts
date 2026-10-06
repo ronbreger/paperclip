@@ -5,16 +5,18 @@
  * is still `in_progress` everywhere else — filters, the status picker, the API
  * and the database. Nothing here is written back.
  *
- * The status picker keeps its own wording on purpose. `todo` and `backlog`
- * share the word "Later" here, which reads well in a list but would give the
- * picker two options a person cannot tell apart.
+ * The status picker keeps its own wording on purpose: these words are tuned
+ * for scanning a list, and a picker needs the stored names.
+ *
+ * `backlog` reads "Parked" rather than sharing "Later" with `todo`, so a task
+ * queued up and a task set aside can be told apart at a glance.
  */
 const TASK_STATUS_DISPLAY_LABELS: Readonly<Record<string, string>> = {
   in_progress: "Doing",
   blocked: "Waiting",
   in_review: "Review",
   todo: "Later",
-  backlog: "Later",
+  backlog: "Parked",
   done: "Done",
 };
 

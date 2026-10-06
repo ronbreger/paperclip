@@ -7,7 +7,7 @@ describe("taskStatusDisplayLabel", () => {
     expect(taskStatusDisplayLabel("blocked")).toBe("Waiting");
     expect(taskStatusDisplayLabel("in_review")).toBe("Review");
     expect(taskStatusDisplayLabel("todo")).toBe("Later");
-    expect(taskStatusDisplayLabel("backlog")).toBe("Later");
+    expect(taskStatusDisplayLabel("backlog")).toBe("Parked");
     expect(taskStatusDisplayLabel("done")).toBe("Done");
   });
 
