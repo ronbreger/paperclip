@@ -122,13 +122,13 @@ describe("IssueRow", () => {
     });
   });
 
-  it("uses stable canonical identifier and timestamp columns at the trailing edge", () => {
+  it("leads the canonical row with the identifier and status word, and keeps the timestamp last", () => {
     const root = createRoot(container);
 
     act(() => {
       root.render(
         <IssueRow
-          issue={createIssue({ identifier: "PAP-42", title: "Canonical task" })}
+          issue={createIssue({ identifier: "PAP-42", title: "Canonical task", status: "in_progress" })}
           presentation="task"
           metadata={<span>Live</span>}
           actions={<button type="button">More</button>}
@@ -142,6 +142,8 @@ describe("IssueRow", () => {
     const title = row?.querySelector('[data-slot="task-row-title"]');
     const metadata = row?.querySelector('[data-slot="task-row-metadata"]');
     const identifier = row?.querySelector('[data-slot="task-row-identifier"]');
+    const statusLabel = row?.querySelector('[data-slot="task-row-status-label"]');
+    const mobileMeta = row?.querySelector('[data-slot="task-row-mobile-meta"]');
     const timestamp = row?.querySelector('[data-slot="task-row-timestamp"]');
     const actions = row?.querySelector('[data-slot="task-row-actions"]');
     const link = row?.querySelector('[data-inbox-issue-link]');
@@ -150,16 +152,46 @@ describe("IssueRow", () => {
     expect(title?.textContent).toContain("Canonical task");
     expect(metadata?.textContent).toBe("Live");
     expect(identifier?.textContent).toBe("PAP-42");
+    expect(statusLabel?.textContent).toBe("Doing");
+    expect(mobileMeta?.textContent).toBe("PAP-42·Doing");
     expect(timestamp?.textContent).toBe("Updated now");
     expect(actions?.textContent).toBe("More");
     expect(identifier?.className).toContain("w-20");
     expect(timestamp?.className).toContain("w-24");
-    if (!link || !metadata || !identifier || !timestamp || !actions) throw new Error("Expected canonical task row slots");
+    if (!link || !metadata || !identifier || !statusLabel || !timestamp || !actions) {
+      throw new Error("Expected canonical task row slots");
+    }
+    // Identifier and status word lead the row; the glyph sits between them.
+    expect(leading?.contains(identifier)).toBe(true);
+    expect(leading?.contains(statusLabel)).toBe(true);
+    expect(identifier.compareDocumentPosition(statusLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(statusLabel.compareDocumentPosition(title!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Trailing edge keeps its order, now ending at the timestamp.
     expect(link.contains(actions)).toBe(false);
     expect(metadata.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(actions.compareDocumentPosition(identifier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(identifier.compareDocumentPosition(timestamp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(timestamp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(timestamp.nextElementSibling).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("hides both identifier columns when the id column is off, and keeps the status word", () => {
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <IssueRow
+          issue={createIssue({ identifier: "PAP-42", status: "blocked" })}
+          presentation="task"
+          showIdentifier={false}
+        />,
+      );
+    });
+
+    const row = container.querySelector('[data-slot="task-row"]');
+    expect(row?.querySelector('[data-slot="task-row-identifier"]')).toBeNull();
+    expect(row?.querySelector('[data-slot="task-row-status-label"]')?.textContent).toBe("Waiting");
+    expect(row?.querySelector('[data-slot="task-row-mobile-meta"]')?.textContent).toBe("Waiting");
 
     act(() => root.unmount());
   });
