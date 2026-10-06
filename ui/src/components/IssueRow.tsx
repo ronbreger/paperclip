@@ -20,6 +20,7 @@ import {
   type RecoveryLivenessContext,
 } from "../lib/recovery-lineage";
 import { StatusIcon } from "./StatusIcon";
+import { taskStatusDisplayLabel } from "../lib/task-status-display";
 import { hasAssignedBacklogBlocker } from "../lib/issue-blockers";
 import { ExternalObjectStatusSummary } from "./ExternalObjectStatusSummary";
 import { Badge } from "@/components/ui/badge";
@@ -216,6 +217,17 @@ export function IssueRow({
 
   if (presentation === "task") {
     const isUnread = unreadState === "visible" || unreadState === "fading";
+    // Canonical rows read left to right as columns: identifier, status, title.
+    // The glyph stays the primary indicator; the word only spells it out.
+    const statusLabel = taskStatusDisplayLabel(issue.status, issue.externalConversationState);
+    const identifierColumn = showIdentifier ? (
+      <span
+        data-slot="task-row-identifier"
+        className="hidden w-20 shrink-0 truncate font-mono text-xs text-muted-foreground sm:block"
+      >
+        {identifier}
+      </span>
+    ) : null;
     return (
       <div
         onMouseEnter={onMouseEnter}
@@ -283,6 +295,7 @@ export function IssueRow({
             })
             : null}
           {leadingControl}
+          {identifierColumn}
           {statusSlot ?? (
             <StatusIcon
               status={issue.status}
@@ -291,10 +304,30 @@ export function IssueRow({
               className={selectedStatusClass}
             />
           )}
+          <span
+            data-slot="task-row-status-label"
+            className="hidden w-20 shrink-0 truncate text-xs text-muted-foreground sm:block"
+          >
+            {statusLabel}
+          </span>
           {parkedBlockerIndicator}
         </span>
 
         <span className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+          {/* Narrow screens have no room for columns, so the same two facts ride
+              above the title as one line: "BRE-101 · In Progress". */}
+          <span
+            data-slot="task-row-mobile-meta"
+            className="flex items-center gap-1 text-xs text-muted-foreground sm:hidden"
+          >
+            {showIdentifier ? (
+              <>
+                <span className="font-mono">{identifier}</span>
+                <span aria-hidden="true">&middot;</span>
+              </>
+            ) : null}
+            <span>{statusLabel}</span>
+          </span>
           <span data-slot="task-row-title-cluster" className="flex min-w-0 flex-1 items-baseline gap-1.5 sm:items-center">
             <span
               data-slot="task-row-title"
@@ -332,11 +365,6 @@ export function IssueRow({
           {desktopTrailing}
           {actions ? <span data-slot="task-row-actions" className="flex shrink-0 items-center gap-1">{actions}</span> : null}
           {onArchive ? <InboxArchiveButton onArchive={onArchive} disabled={archiveDisabled} compact /> : null}
-          {showIdentifier ? (
-            <span data-slot="task-row-identifier" className="w-20 shrink-0 text-right font-mono text-xs text-muted-foreground">
-              {identifier}
-            </span>
-          ) : null}
           {trailingMeta ? (
             <span data-slot="task-row-timestamp" className="w-24 shrink-0 truncate text-right text-xs text-muted-foreground">
               {trailingMeta}
